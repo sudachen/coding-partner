@@ -1,0 +1,26 @@
+[workspace]
+members = [ "console"]
+resolver="2"
+
+[workspace.package]
+authors = ["Alexey Sudachen"]
+edition = "2024"
+version = "0.1.0"
+homepage = "https://github.com/sudachen/coding-parnter"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sudachen/coding-partner"
+rust-version = "1.85.0"
+
+[workspace.dependencies]
+async-trait = "0.1.89"
+thiserror = "2.0.16"
+tokio = { version = "1.47" }
+tokio-util = { version = "0.7" }
+env_logger = { version = "0.11" }
+
+[workspace.lints.clippy]
+unused_trait_names = "warn"
+uninlined_format_args = "allow"
+
+[workspace.lints.rust]
+unused-extern-crates = "warn"
