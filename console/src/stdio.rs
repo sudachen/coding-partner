@@ -14,7 +14,12 @@ enum State {
     Responding(RespondingState),
 }
 
-pub struct StdioConsole<R, W>
+/// A `Console` implementation that uses standard I/O streams.
+///
+/// This struct provides a basic, text-based console interface by reading from a `Read`
+/// buffer (like `stdin`) and writing to a `Write` buffer (like `stdout`). It's suitable
+/// for command-line applications and testing purposes.
+pub struct StdIo<R, W>
 where
     R: Read,
     W: Write,
@@ -25,7 +30,8 @@ where
     observability: Observability,
 }
 
-impl StdioConsole<std::io::Stdin, std::io::Stdout> {
+impl StdIo<std::io::Stdin, std::io::Stdout> {
+    /// Creates a new `StdIo` instance that reads from `stdin` and writes to `stdout`.
     pub fn new() -> Self {
         Self {
             reader: BufReader::new(std::io::stdin()),
@@ -36,7 +42,11 @@ impl StdioConsole<std::io::Stdin, std::io::Stdout> {
     }
 }
 
-impl<R: Read, W: Write> StdioConsole<R, W> {
+impl<R: Read, W: Write> StdIo<R, W> {
+    /// Creates a new `StdIo` instance with the given reader and writer buffers.
+    ///
+    /// This is useful for testing, allowing you to replace `stdin` and `stdout` with
+    /// in-memory buffers.
     pub fn new_with_buffers(reader: R, writer: W) -> Self {
         Self {
             reader: BufReader::new(reader),
@@ -48,11 +58,20 @@ impl<R: Read, W: Write> StdioConsole<R, W> {
 }
 
 #[async_trait]
-impl<R, W> Console for StdioConsole<R, W>
+/// Implements the `Console` trait for the `StdIo` struct.
+///
+/// This implementation provides a straightforward, synchronous console experience. It's
+/// important to note that while the trait methods are `async`, this implementation
+/// blocks on I/O operations.
+impl<R, W> Console for StdIo<R, W>
 where
     R: Read + Send,
     W: Write + Send,
 {
+    /// Prompts for user input by reading a line from the input buffer.
+    ///
+    /// The prompt itself is not displayed by this method; it's assumed to be handled
+    /// by the calling context or the terminal's natural behavior.
     async fn prompt_input(&mut self) -> Result<ConsoleInput, ConsoleError> {
         if !matches!(self.state, State::Prompting) {
             return Err(ConsoleError::InvalidState);
@@ -63,40 +82,16 @@ where
             if line.is_empty() {
                 return Err(ConsoleError::Terminated);
             }
-
-            if let Some(parts) = shlex::split(line) {
-                if !parts.is_empty() && parts[0].starts_with('/') {
-                    let command = parts[0].clone();
-                    match parts.as_slice() {
-                        [cmd, arg] if *cmd == "/thinking" => {
-                            if *arg == "on" {
-                                return Ok(ConsoleInput::Thinking(true));
-                            } else if *arg == "off" {
-                                return Ok(ConsoleInput::Thinking(false));
-                            }
-                        }
-                        [cmd, arg] if *cmd == "/statistics" => {
-                            if *arg == "on" {
-                                return Ok(ConsoleInput::Statistics(true));
-                            } else if *arg == "off" {
-                                return Ok(ConsoleInput::Statistics(false));
-                            }
-                        }
-                        [cmd] if *cmd == "/exit" => {
-                            return Ok(ConsoleInput::Exit);
-                        }
-                        _ => {}
-                    }
-                    return Err(ConsoleError::UnknownCommand { command });
-                }
-            }
-
-            Ok(ConsoleInput::Prompt { prompt: line.to_string() })
+            ConsoleInput::from_line(line)
         } else {
             Err(ConsoleError::Terminated)
         }
     }
 
+    /// Switches the internal state to `Responding`.
+    ///
+    /// If statistics are enabled, it records the start time to calculate response
+    /// duration later.
     async fn start_responding(&mut self) -> Result<(), ConsoleError> {
         if !matches!(self.state, State::Prompting) {
             return Err(ConsoleError::InvalidState);
@@ -111,14 +106,18 @@ where
         Ok(())
     }
 
+    /// Switches the internal state back to `Prompting`.
+    ///
+    /// If statistics are enabled, it calculates and prints the total response time.
     async fn stop_responding(&mut self) -> Result<(), ConsoleError> {
         let state = std::mem::replace(&mut self.state, State::Prompting);
         if let State::Responding(responding_state) = state {
             if self.observability.statistics {
                 if let Some(start_time) = responding_state.start_time {
                     let duration = start_time.elapsed();
-                    writeln!(self.writer, "Responding time: {:?}", duration)
+                    writeln!(self.writer, "Response time: {:?}", duration)
                         .map_err(|_| ConsoleError::Terminated)?;
+                    writeln!(self.writer).map_err(|_| ConsoleError::Terminated)?;
                     self.writer.flush().map_err(|_| ConsoleError::Terminated)?;
                 }
             }
@@ -129,14 +128,20 @@ where
         }
     }
 
-    fn observability(&mut self, on_off: Option<Observability>) -> Observability {
+    /// Gets or sets the observability flags.
+    ///
+    /// See `Console::observability` for detailed behavior.
+    fn observability(&mut self, new_settings: Option<Observability>) -> Observability {
         let old = self.observability;
-        if let Some(new_val) = on_off {
+        if let Some(new_val) = new_settings {
             self.observability = new_val;
         }
         old
     }
 
+    /// Appends a block of text to the agent's response area.
+    ///
+    /// This implementation writes the text followed by a newline to the output buffer.
     async fn add_response_text(&mut self, text: String) -> Result<(), ConsoleError> {
         if !matches!(self.state, State::Responding(_)) {
             return Err(ConsoleError::InvalidState);
@@ -146,6 +151,10 @@ where
         Ok(())
     }
 
+    /// Appends text to the agent's "thinking" status display if enabled.
+    ///
+    /// This writes the text to the output buffer only if the `thinking` flag in
+    /// `Observability` is set to `true`.
     async fn add_thinking_text(&mut self, text: String) -> Result<(), ConsoleError> {
         if !matches!(self.state, State::Responding(_)) {
             return Err(ConsoleError::InvalidState);
@@ -157,14 +166,11 @@ where
         Ok(())
     }
 
+    /// Asks the user for a confirmation, defaulting to "yes".
+    ///
+    /// It prints the given text with a `[Y/n]` prompt and waits for user input.
+    /// 'y', 'yes', or an empty line are considered confirmations.
     async fn if_accept(&mut self, text: String) -> Result<bool, ConsoleError> {
-        if !matches!(self.state, State::Responding(_)) {
-            return Err(ConsoleError::InvalidState);
-        }
-        self.if_yes(text).await
-    }
-
-    async fn if_yes(&mut self, text: String) -> Result<bool, ConsoleError> {
         if !matches!(self.state, State::Responding(_)) {
             return Err(ConsoleError::InvalidState);
         }
@@ -184,15 +190,39 @@ where
         }
     }
 
-    async fn ask_user(&mut self, text: String) -> Result<String, ConsoleError> {
+    /// Asks the user a yes/no question, defaulting to "no".
+    ///
+    /// It prints the given text with a `[y/N]` prompt and waits for user input.
+    /// Only 'y' or 'yes' are considered affirmative answers.
+    async fn if_yes(&mut self, text: String) -> Result<bool, ConsoleError> {
         if !matches!(self.state, State::Responding(_)) {
             return Err(ConsoleError::InvalidState);
         }
-        writeln!(self.writer, "{}", text).map_err(|_| ConsoleError::Terminated)?;
-        self.writer.flush().map_err(|_| ConsoleError::Terminated)?;
+        loop {
+            writeln!(self.writer, "{} [y/N]", text).map_err(|_| ConsoleError::Terminated)?;
+            self.writer.flush().map_err(|_| ConsoleError::Terminated)?;
+            let mut buffer = String::new();
+            if self.reader.read_line(&mut buffer).is_ok() {
+                match buffer.trim().to_lowercase().as_str() {
+                    "y" | "yes" => return Ok(true),
+                    "n" | "no" | "" => return Ok(false),
+                    _ => continue,
+                }
+            } else {
+                return Err(ConsoleError::Terminated);
+            }
+        }
+    }
+
+    /// Prompts the user for a single line of text input.
+    ///
+    /// It prints the given prompt text and returns the user's trimmed input.
+    async fn ask_user(&mut self, text: String) -> Result<String, ConsoleError> {
+        self.writer.write_all(format!("{} ", text).as_bytes()).unwrap();
+        self.writer.flush().unwrap();
         let mut buffer = String::new();
         if self.reader.read_line(&mut buffer).is_ok() {
-            Ok(buffer.trim_end().to_string())
+            Ok(buffer.trim().to_string())
         } else {
             Err(ConsoleError::Terminated)
         }

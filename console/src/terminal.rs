@@ -9,7 +9,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     widgets::{Block, Borders, Paragraph},
-    Terminal as RatatuiTerminal,
+    Terminal as RtuTerminal,
 };
 use std::io::{self, Stdout};
 
@@ -37,7 +37,7 @@ impl Default for State {
 }
 
 pub struct Terminal {
-    terminal: RatatuiTerminal<CrosstermBackend<Stdout>>,
+    terminal: RtuTerminal<CrosstermBackend<Stdout>>,
     state: State,
 }
 
@@ -45,7 +45,7 @@ impl Terminal {
     pub fn new() -> Result<Self, io::Error> {
         enable_raw_mode()?;
         io::stdout().execute(EnterAlternateScreen)?;
-        let terminal = RatatuiTerminal::new(CrosstermBackend::new(io::stdout()))?;
+        let terminal = RtuTerminal::new(CrosstermBackend::new(io::stdout()))?;
         Ok(Self {
             terminal,
             state: State::default(),
@@ -122,8 +122,8 @@ impl Console for Terminal {
         Ok(())
     }
 
-    fn observability(&mut self, on_off: Option<Observability>) -> Observability {
-        if let Some(new_observability) = on_off {
+    fn observability(&mut self, new_settings: Option<Observability>) -> Observability {
+        if let Some(new_observability) = new_settings {
             self.state.observability = new_observability;
         }
         self.state.observability
