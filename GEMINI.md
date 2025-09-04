@@ -8,14 +8,15 @@ This document provides context for the Gemini AI assistant to understand and eff
 
 The main components are:
 - A root workspace that defines shared dependencies and settings.
-- A `ui` crate, which is currently placeholder code but is intended to contain the user interface.
+- A `console` crate that provides a console interface.
+- A `agent` crate that provides ReAct agent functionality.
 
 The project utilizes the following core technologies:
 - **Rust:** The primary programming language.
 - **Tokio:** An asynchronous runtime for Rust, suggesting the application will handle concurrent operations.
 - **env_logger:** For logging.
 
-The project is in the initial phase of development. The `ui` crate contains only a template `add` function.
+The project is in the initial phase of development.
 
 ## Building and Running
 
@@ -32,7 +33,7 @@ Standard Rust cargo commands are used for managing the project.
   ```
 
 - **Running the application:**
-  - **TODO:** There is no runnable binary target defined in the project yet. The `ui` crate is a library.
+  - **TODO:** There is no runnable binary target defined in the project yet. 
 
 ## Development Conventions
 
